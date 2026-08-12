@@ -1,3 +1,4 @@
+from obsws_python import baseclient
 from datetime import datetime
 from pathlib import Path
 import json
@@ -88,9 +89,14 @@ def main():
         input(
             "Type [word/sentence/letter] "
             "(default: word): "
-        ).strip()
-        or "word"
-    )
+        ).strip().lower()
+    or "word"
+)
+
+    asl_gloss = None
+
+    if capture_type == "sentence":
+        asl_gloss = input("ASL gloss: ").strip() or None
 
     session_id = str(uuid.uuid4())
 
@@ -145,7 +151,7 @@ def main():
             "path": str(destination),
             "recorded_at": now.isoformat(),
             "prompt_en": prompt_en,
-            "ASL_gloss": None,
+            "ASL_gloss": asl_gloss,
             "capture_type": capture_type,
             "take": take,
             "preferred_take": False,
