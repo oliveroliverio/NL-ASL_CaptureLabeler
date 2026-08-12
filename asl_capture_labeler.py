@@ -1,14 +1,22 @@
 from pathlib import Path
 from datetime import datetime
 import json
-import time
+import os
+import shutil
 import uuid
 
-WATCH_DIR = Path("/Users/mbp-14/Downloads/DATALAKE_mb14/NL-ASL/_Watch")
-METADATA_PATH = WATCH_DIR.parent / "metadata" / "recordings.jsonl"
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
+WATCH_DIR = Path(os.environ["WATCH_DIR"]).expanduser()
+RAW_DIR = Path(os.environ["RAW_DIR"]).expanduser()
+METADATA_PATH = Path(os.environ["METADATA_PATH"]).expanduser()
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
 
+RAW_DIR.mkdir(parents=True, exist_ok=True)
 METADATA_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -17,46 +25,30 @@ def append_metadata(record: dict):
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def wait_for_file_to_finish(path: Path, stable_seconds=2):
-    previous_size = -1
-    stable_count = 0
-
-    while stable_count < stable_seconds:
-        current_size = path.stat().st_size
-
-        if current_size == previous_size:
-            stable_count += 1
-        else:
-            stable_count = 0
-
-        previous_size = current_size
-        time.sleep(1)
-
-
-def process_new_video(path: Path):
-    print(f"\nDetected: {path.name}")
-
-    wait_for_file_to_finish(path)
+def process_video(path: Path):
+    print(f"\nProcessing: {path.name}")
 
     prompt_en = input("English prompt: ").strip()
 
-    capture_type = input(
-        "Type [sentence/word/letter] (default: sentence): "
-    ).strip() or "sentence"
+    capture_type = (
+        input("Type [sentence/word/letter] (default: sentence): ").strip()
+        or "sentence"
+    )
 
     take_str = input("Take number (default: 1): ").strip()
     take = int(take_str) if take_str else 1
 
-    quality = input(
-        "Quality [good/uncertain/incorrect/practice] "
-        "(default: practice): "
-    ).strip() or "practice"
+    quality = (
+        input(
+            "Quality [good/uncertain/incorrect/practice] "
+            "(default: practice): "
+        ).strip()
+        or "practice"
+    )
 
-    preferred_input = input(
-        "Preferred take? [y/N]: "
-    ).strip().lower()
-
-    preferred_take = preferred_input == "y"
+    preferred_take = (
+        input("Preferred take? [y/N]: ").strip().lower() == "y"
+    )
 
     recording_id = str(uuid.uuid4())
 
@@ -64,13 +56,14 @@ def process_new_video(path: Path):
     timestamp = now.strftime("%y%m%d-%H%M%S")
 
     new_filename = f"{timestamp}_{recording_id}{path.suffix.lower()}"
-    new_path = path.with_name(new_filename)
+    destination = RAW_DIR / new_filename
 
-    path.rename(new_path)
+    shutil.move(str(path), str(destination))
 
     record = {
         "recording_id": recording_id,
         "filename": new_filename,
+        "path": str(destination),
         "recorded_at": now.astimezone().isoformat(),
         "prompt_en": prompt_en,
         "ASL_gloss": None,
@@ -85,37 +78,27 @@ def process_new_video(path: Path):
 
     append_metadata(record)
 
-    print(f"Renamed to: {new_filename}")
-    print(f"Metadata appended to: {METADATA_PATH}")
+    print(f"Saved video: {destination}")
+    print(f"Metadata:    {METADATA_PATH}")
 
 
 def main():
-    print("Watching:")
-    print(WATCH_DIR)
-    print("\nPress Ctrl+C to stop.\n")
-
-    known_files = {
-        p.resolve()
+    pending_files = sorted(
+        p
         for p in WATCH_DIR.iterdir()
-        if p.is_file()
-    }
+        if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS
+    )
 
-    while True:
-        current_files = {
-            p.resolve()
-            for p in WATCH_DIR.iterdir()
-            if p.is_file()
-            and p.suffix.lower() in VIDEO_EXTENSIONS
-        }
+    if not pending_files:
+        print("No unprocessed videos found.")
+        return
 
-        new_files = current_files - known_files
+    print(f"Found {len(pending_files)} unprocessed video(s).")
 
-        for file_path in sorted(new_files):
-            process_new_video(Path(file_path))
+    for path in pending_files:
+        process_video(path)
 
-        known_files |= new_files
-
-        time.sleep(1)
+    print("\nDone. All detected videos were processed.")
 
 
 if __name__ == "__main__":
